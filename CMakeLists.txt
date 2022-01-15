@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.18.1)
+project(chip8)
+include_directories(./include)
+add_executable(chip8 ./src/main.cpp ./src/chip8.cpp ./src/ioInterface.cpp)
+set(CMAKE_BUILD_TYPE Debug)
