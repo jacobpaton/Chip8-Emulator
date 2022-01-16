@@ -1,4 +1,5 @@
 #include <string>
+#include <SDL2/SDL.h>
 
 using namespace std;
 
@@ -8,7 +9,8 @@ class SDL_Texture;
 
 class IoInterface {
     public:
-        IoInterface(string title, int windowWidth, int windowHeight, int textureWidth, int textureHeight);
+        IoInterface(char const* title, int windowWidth, int windowHeight, int textureWidth, int textureHeight);
+        ~IoInterface();
         bool getInput(uint8_t* keys);
         void drawFrame(const void* buffer, int pitch);
 

@@ -1,22 +1,76 @@
 #include "chip8.h"
 
-Chip8::Chip8(int scale, int delay, string romFile) {
+Chip8::Chip8(int scale, int delay, string romFile) : ioItf("Chip8 Emulator", scale * 64, scale * 32, 64, 32) {
+    
+    this->delay = delay;
+    srand(time(nullptr));
+
     // Load ROM file
     if (loadRom(romFile)) {
         exit(EXIT_FAILURE);
     }
 
+    // Point PC to start of ROM
+    pc = 0x200;
+
     // Populate the instruction map used in decoding
     mapInsts();
+
+    // Load font to memory
+    for (uint16_t i = 0; i < 16; i++) {
+		memory[0x50u + i] = font[i];
+	}
 }
 
-int Chip8::loadRom(string romFile) {
+int Chip8::loadRom(string romFileName) {
+    // Opens rom file then reads to a buffer before writing to chip8 memory
+    ifstream romFile(romFileName, ios::binary | ios::ate);
+
+    if (romFile.is_open()) {
+        streampos fileSize = romFile.tellg();
+        char* buf = (char*) malloc(fileSize * sizeof(char));
+        romFile.seekg(0, ios::beg);
+		romFile.read(buf, fileSize);
+		romFile.close();
+
+		for (long long i = 0; i < fileSize; i++)
+		{
+			memory[0x200 + i] = buf[i];
+		}
+
+        free(buf);
+    }
 
     return 0;
 }
 
 void Chip8::run() {
-    // Cycle
+    bool quit = false;
+    int videoPitch = sizeof(videoMemory[0]) * 64;
+    auto lastCycleTime = chrono::high_resolution_clock::now();
+
+    while (!quit) {
+        quit = ioItf.getInput(keys);
+
+        auto currentTime = chrono::high_resolution_clock::now();
+		float dt = chrono::duration<float, chrono::milliseconds::period>(currentTime - lastCycleTime).count();
+
+		if (dt > delay) {
+            lastCycleTime = currentTime;
+            cycle();
+            ioItf.drawFrame(videoMemory, videoPitch);
+        }
+    }
+}
+
+void Chip8::cycle() {
+    // Read next inst (2 bytes) and increment pc
+    opcode = (uint16_t) memory[pc++];
+    opcode <<= 8u;
+    opcode |= (uint16_t) memory[pc++];
+
+    // Execute inst
+    (this->*oplist[opcode].execute)();
 }
 
 void Chip8::mapInsts() {
@@ -230,12 +284,251 @@ void Chip8::mapInsts() {
     }
 }
 
-void Chip8::CLS() { } void Chip8::RET() { } void Chip8::JMP() { } void Chip8::CALL() { }
-void Chip8::SEI() { } void Chip8::SNEI() { } void Chip8::SE() { } void Chip8::LD() { }
-void Chip8::ADDI() { } void Chip8::LDR() { } void Chip8::OR() { } void Chip8::AND() { }
-void Chip8::XOR() { } void Chip8::ADD() { } void Chip8::SUB() { } void Chip8::SHR() { }
-void Chip8::SUBN() { } void Chip8::SHL() { } void Chip8::SNE() { } void Chip8::LDI() { }
-void Chip8::JP0() { } void Chip8::RND() { } void Chip8::DRW() { } void Chip8::SKP() { }
-void Chip8::SKNP() { } void Chip8::LDDT() { } void Chip8::LDK() { } void Chip8::SDT() { }
-void Chip8::SST() { } void Chip8::ADDRI() { } void Chip8::LDIS() { } void Chip8::SBCD() { }
-void Chip8::SRI() { } void Chip8::LIR() { }
+void Chip8::CLS() {
+    // Clear screen by reseting video memory
+    memset(videoMemory, 0, sizeof(videoMemory));
+}
+
+void Chip8::RET() {
+    pc = memory[sp];
+    sp--;
+}
+
+void Chip8::JMP() {
+    pc = opcode & 0x0FFFu;
+}
+
+void Chip8::CALL() {
+    sp++;
+    memory[sp] = pc;
+    pc = opcode & 0x0FFFu;
+}
+
+void Chip8::SEI() {
+    uint8_t Vx = registers[(opcode & 0x0F00u) >> 8u];
+    uint8_t immediate = opcode & 0x00FF;
+
+    if (Vx == immediate)
+        pc += 2;
+}
+
+void Chip8::SNEI() {
+    uint8_t Vx = registers[(opcode & 0x0F00u) >> 8u];
+    uint8_t immediate = opcode & 0x00FF;
+
+    if (Vx != immediate)
+        pc += 2;
+}
+
+void Chip8::SE() {
+    uint8_t Vx = registers[(opcode & 0x0F00u) >> 8u];
+    uint8_t Vy = registers[(opcode & 0x00F0u) >> 4u];
+
+    if (Vx == Vy)
+        pc += 2;
+}
+
+void Chip8::LD() {
+    registers[(opcode & 0x0F00u) >> 8u] = opcode & 0x00FFu;
+}
+
+void Chip8::ADDI() {
+    registers[(opcode & 0x0F00u) >> 8u] += opcode & 0x00FFu;
+}
+
+void Chip8::LDR() {
+    registers[(opcode & 0x0F00u) >> 8u] = registers[(opcode & 0x00F0u) >> 4u];
+}
+
+void Chip8::OR() {
+    registers[(opcode & 0x0F00u) >> 8u] |= registers[(opcode & 0x00F0u) >> 4u];
+}
+
+void Chip8::AND() {
+    registers[(opcode & 0x0F00u) >> 8u] &= registers[(opcode & 0x00F0u) >> 4u];
+}
+
+void Chip8::XOR() { 
+    registers[(opcode & 0x0F00u) >> 8u] ^= registers[(opcode & 0x00F0u) >> 4u];
+}
+
+void Chip8::ADD() {
+    // Do addition
+    uint8_t VxIdx = (opcode & 0x0F00u) >> 8u;
+    uint16_t res = (uint16_t) registers[VxIdx] + (uint16_t) registers[(opcode & 0x00F0u) >> 4u];
+
+    // Calculate and write carry
+    registers[0xF] = res > 255u ? 1 : 0;
+
+    // Convert to 8 bit int and write
+    registers[VxIdx] = (uint8_t) (res & 0xFFu);
+}
+void Chip8::SUB() {
+    uint8_t VxIdx = (opcode & 0x0F00u) >> 8u;
+    uint8_t VyIdx = (opcode & 0x00F0u) >> 4u;
+
+    // Calculate and write carry
+    registers[0xF] = registers[VxIdx] > registers[VyIdx] ? 1 : 0;
+
+    // Do subtraction
+    registers[VxIdx] -= registers[VyIdx];
+}
+
+void Chip8::SHR() {
+    uint8_t VxIdx = (opcode & 0x0F00u) >> 8u;
+
+    // Set shifted bit (LSB) in VF
+    registers[0xF] = registers[VxIdx] & 0x01u;
+
+    // Do the shift
+    registers[VxIdx] >>= 1;
+}
+
+void Chip8::SUBN() {
+    uint8_t VxIdx = (opcode & 0x0F00u) >> 8u;
+    uint8_t VyIdx = (opcode & 0x00F0u) >> 4u;
+
+    // Calculate and write carry
+    registers[0xF] = registers[VyIdx] > registers[VxIdx] ? 1 : 0;
+
+    // Do subtraction
+    registers[VxIdx] -= registers[VyIdx];
+}
+
+void Chip8::SHL() {
+    uint8_t VxIdx = (opcode & 0x0F00u) >> 8u;
+
+    // Set shifted bit (MSB) in VF
+    registers[0xF] = (registers[VxIdx] & 0x80u) >> 7u;
+
+    // Do the shift
+    registers[VxIdx] <<= 1;
+}
+
+void Chip8::SNE() {
+    if (registers[(opcode & 0x0F00u) >> 8u] != registers[(opcode & 0x00F0u) >> 4u])
+        pc += 2;
+}
+
+void Chip8::LDI() {
+    I = opcode & 0x0FFFu;
+}
+
+void Chip8::JP0() {
+    pc = registers[0x0] + (opcode & 0x0FFFu);
+}
+
+void Chip8::RND() {
+    registers[(opcode & 0x0F00u) >> 8u] = (rand()/((RAND_MAX + 1u)/255)) & (opcode & 0x00FFu);
+}
+
+void Chip8::DRW() {
+	uint8_t height = opcode & 0x000Fu;
+
+    // Check if sprite goes beyond screen boundaries (and wrap around)
+	uint8_t xPos = registers[(opcode & 0x0F00u) >> 8u] % 64;
+	uint8_t yPos = registers[(opcode & 0x00F0u) >> 4u] % 32;
+    
+    // Reset flag
+	registers[0xF] = 0;
+
+    // 
+	for (unsigned int row = 0; row < height; ++row)
+	{
+		uint8_t spriteByte = memory[I + row];
+
+		for (unsigned int col = 0; col < 8; ++col)
+		{
+			uint8_t spritePixel = spriteByte & (0x80u >> col);
+			uint32_t* screenPixel = &videoMemory[(yPos + row) * 64 + (xPos + col)];
+
+			// Sprite pixel is on
+			if (spritePixel)
+			{
+                // Collison since both are on
+				if (*screenPixel == 0xFFFFFFFF)
+					registers[0xF] = 1;
+
+				// XOR with the sprite pixel
+				*screenPixel ^= 0xFFFFFFFF;
+			}
+		}
+	}
+}
+
+void Chip8::SKP() {
+    if (keys[registers[(opcode & 0x0F00u) >> 8u]])
+        pc += 2;
+}
+
+void Chip8::SKNP() {
+    if (!keys[registers[(opcode & 0x0F00u) >> 8u]])
+        pc += 2;
+}
+
+void Chip8::LDDT() {
+    registers[(opcode & 0x0F00u) >> 8u] = delayTimer;
+}
+
+void Chip8::LDK() {
+    bool pressed = false;
+    for (int i=0; i < 16; i++) {
+        if (keys[i]) {
+            pressed = true;
+            registers[(opcode & 0x0F00u) >> 8u] = i;
+        }
+    }
+
+    // If no key press then cycle again and execute this same inst to update key presses
+    if (pressed)
+        pc -= 2;
+}
+
+void Chip8::SDT() {
+    delayTimer = registers[(opcode & 0x0F00u) >> 8u];
+}
+
+void Chip8::SST() {
+    soundTimer = registers[(opcode & 0x0F00u) >> 8u];
+}
+
+void Chip8::ADDRI() {
+    I += registers[(opcode & 0x0F00u) >> 8u];
+}
+
+void Chip8::LDIS() {
+	I = 0x50u + (5 * registers[(opcode & 0x0F00u) >> 8u]);
+}
+
+void Chip8::SBCD() {
+	uint8_t value = registers[(opcode & 0x0F00u) >> 8u];
+
+	// Ones
+	memory[I + 2] = value % 10;
+	value /= 10;
+
+	// Tens
+	memory[I + 1] = value % 10;
+	value /= 10;
+
+	// Hundreds
+	memory[I] = value % 10;
+}
+
+void Chip8::SRI() {
+    uint8_t VxIdx = (opcode & 0x0F00u) >> 8u;
+
+	for (uint8_t i = 0; i <= VxIdx; ++i)
+	{
+		memory[I + i] = registers[i];
+	}
+}
+
+void Chip8::LIR() {
+    uint8_t VxIdx = (opcode & 0x0F00u) >> 8u;
+
+	for (uint8_t i = 0; i <= VxIdx; ++i)
+	{
+		registers[i] = memory[I + i];
+	}
+}

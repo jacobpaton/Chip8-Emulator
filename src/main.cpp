@@ -9,7 +9,8 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    Chip8 emu(stoi(argv[1]), stoi(argv[2]), argv[3]);
+    string fileName(argv[3]);
+    Chip8 emu(stoi(argv[1]), stoi(argv[2]), fileName);
     emu.run();
 
     return 0;
