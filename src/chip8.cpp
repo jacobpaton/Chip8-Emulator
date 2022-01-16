@@ -1,7 +1,6 @@
 #include "chip8.h"
 
 Chip8::Chip8(int scale, int delay, string romFile) : ioItf("Chip8 Emulator", scale * 64, scale * 32, 64, 32) {
-    
     this->delay = delay;
     srand(time(nullptr));
 
@@ -65,12 +64,26 @@ void Chip8::run() {
 
 void Chip8::cycle() {
     // Read next inst (2 bytes) and increment pc
+    if (pc > 4095) {
+        cout << "pc out of bounds: " << pc << endl;
+    }
     opcode = (uint16_t) memory[pc++];
     opcode <<= 8u;
     opcode |= (uint16_t) memory[pc++];
 
+    if (delayTimer > 0)
+        delayTimer--;
+    
+    if (soundTimer > 0)
+        soundTimer--;
+
     // Execute inst
-    (this->*oplist[opcode].execute)();
+    if (oplist.count(opcode)) {
+        (this->*oplist[opcode].execute)();
+        cout << "Legal opcode: " << opcode << endl;
+    } else {
+        cout << "Illegal opcode: " << opcode << endl;
+    }
 }
 
 void Chip8::mapInsts() {
@@ -116,7 +129,7 @@ void Chip8::mapInsts() {
     }
 
     // 5xy0
-    for (int i=0x5000u; i < 0x6000u; i+=0x0Fu) {
+    for (int i=0x5000u; i < 0x6000u; i+=0x10u) {
         oplist[i].name = "Skip Equal Vx, Vy";
         oplist[i].execute = &Chip8::SE;
     }
@@ -134,61 +147,61 @@ void Chip8::mapInsts() {
     }
 
     // 8xy0
-    for (int i=0x8000u; i < 0x9000u; i+=0x0Fu) {
+    for (int i=0x8000u; i < 0x9000u; i+=0x10u) {
         oplist[i].name = "LD Vx, Vy";
         oplist[i].execute = &Chip8::LDR;
     }
 
     // 8xy1
-    for (int i=0x8001u; i < 0x9000u; i+=0x0Fu) {
+    for (int i=0x8001u; i < 0x9000u; i+=0x10u) {
         oplist[i].name = "OR Vx, Vy";
         oplist[i].execute = &Chip8::OR;
     }
 
     // 8xy2
-    for (int i=0x8002u; i < 0x9000u; i+=0x0Fu) {
+    for (int i=0x8002u; i < 0x9000u; i+=0x10u) {
         oplist[i].name = "AND Vx, Vy";
         oplist[i].execute = &Chip8::AND;
     }
 
     // 8xy3
-    for (int i=0x8003u; i < 0x9000u; i+=0x0Fu) {
+    for (int i=0x8003u; i < 0x9000u; i+=0x10u) {
         oplist[i].name = "XOR Vx, Vy";
         oplist[i].execute = &Chip8::XOR;
     }
 
     // 8xy4
-    for (int i=0x8004u; i < 0x9000u; i+=0x0Fu) {
+    for (int i=0x8004u; i < 0x9000u; i+=0x10u) {
         oplist[i].name = "ADD registers, Vx, Vy";
         oplist[i].execute = &Chip8::ADD;
     }
 
     // 8xy5
-    for (int i=0x8005u; i < 0x9000u; i+=0x0Fu) {
+    for (int i=0x8005u; i < 0x9000u; i+=0x10u) {
         oplist[i].name = "SUB Vx, Vy";
         oplist[i].execute = &Chip8::SUB;
     }
 
     // 8xy6
-    for (int i=0x8006u; i < 0x9000u; i+=0x0Fu) {
+    for (int i=0x8006u; i < 0x9000u; i+=0x10u) {
         oplist[i].name = "SHR Vx, Vy";
         oplist[i].execute = &Chip8::SHR;
     }
 
     // 8xy7
-    for (int i=0x8007u; i < 0x9000u; i+=0x0Fu) {
+    for (int i=0x8007u; i < 0x9000u; i+=0x10u) {
         oplist[i].name = "SUBN Vx{, Vy}";
         oplist[i].execute = &Chip8::SUBN;
     }
 
     // 8xyE
-    for (int i=0x800Eu; i < 0x9000u; i+=0x0Fu) {
+    for (int i=0x800Eu; i < 0x9000u; i+=0x10u) {
         oplist[i].name = "SHL Vx{, Vy}";
         oplist[i].execute = &Chip8::SHL;
     }
 
     // 9xy0
-    for (int i=0x9000u; i < 0xA000u; i+=0x0Fu) {
+    for (int i=0x9000u; i < 0xA000u; i+=0x10u) {
         oplist[i].name = "SNE Vx, Vy";
         oplist[i].execute = &Chip8::SNE;
     }
@@ -290,7 +303,7 @@ void Chip8::CLS() {
 }
 
 void Chip8::RET() {
-    pc = memory[sp];
+    pc = stack[sp];
     sp--;
 }
 
@@ -300,7 +313,7 @@ void Chip8::JMP() {
 
 void Chip8::CALL() {
     sp++;
-    memory[sp] = pc;
+    stack[sp] = pc;
     pc = opcode & 0x0FFFu;
 }
 
