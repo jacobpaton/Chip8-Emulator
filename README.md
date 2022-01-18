@@ -1,6 +1,8 @@
 # Chip8 Emu
 
-This project is a chip8 emulator written for the UAlberta CompE Club's HackED 2022 hackathon.
+This project is a chip8 emulator written for the UAlberta CompE Club's HackED 2022 hackathon. Below is the emulator running Brick.
+
+![chip8-emu-brick](https://user-images.githubusercontent.com/28745377/150006064-7f1e167e-f250-4e22-bd7f-27c402ec2cba.jpeg)
 
 ## Running:
 
@@ -13,4 +15,4 @@ I came across a repo of chip8 roms (link below) which I selected a few from to u
 https://github.com/kripod/chip8-roms
 
 ## Useful Resources:
-- http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#0nnn
+- http://devernay.free.fr/hacks/chip8/C8TECH10.HTM
